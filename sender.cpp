@@ -24,7 +24,23 @@ int main(int argc, char **argv) {
   // TODO: connect to server
 
   // TODO: send slogin message
+  std::string line;
+  for (std::string line; std::getline(std::cin, line);) {
+        std::cout << line << std::endl;
+    }
+    if(line.substr(0,5) == "/join "){
 
+    } else if(line.substr(0,6) == "/leave "){
+
+    } else if (line.substr(0,5) == "/quit "){
+
+    } else if(line.substr(0) == "/"){
+      // error
+    } else{
+      std::string message = line;
+      conn.send(message)
+    }
+      
   // TODO: loop reading commands from user, sending messages to
   //       server as appropriate
 
