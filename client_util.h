@@ -2,6 +2,7 @@
 #define CLIENT_UTIL_H
 
 #include <string>
+#include "connection.h"
 class Connection;
 struct Message;
 
