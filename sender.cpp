@@ -31,15 +31,17 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  conn.send(Message(TAG_SLOGIN, slog.str()));
+  conn.send(Message(TAG_SLOGIN, username));
   Message response;
   if (!conn.receive(response)) {
-    std::cerr << "Error: Failed to receive rlogin response\n";
+    std::cerr << "Error: Failed to receive slogin response\n";
+    conn.close();
     return 1;
   }
 
   if (response.tag == TAG_ERR) {
     std::cerr << response.data << std::endl;
+    conn.close();
     return 1;
   }
 
@@ -49,10 +51,11 @@ int main(int argc, char **argv) {
     if(line.substr(0,6) == "/join "){
       std::stringstream join;
       join << "join:"<< line.substr(6);
-      conn.send(Message(TAG_JOIN, join.str()));
+      conn.send(Message(TAG_JOIN, line.substr(6)));
       Message response;
       if (!conn.receive(response)) {
         std::cerr << "ERROR: failed to receive response\n";
+        conn.close();
         return 1;
       }
       if (response.tag == TAG_ERR) {
@@ -62,10 +65,11 @@ int main(int argc, char **argv) {
     } else if(line.substr(0,6) == "/leave"){
       std::stringstream leave;
       leave << "leave:";
-      conn.send(Message(TAG_LEAVE, leave.str()));
+      conn.send(Message(TAG_LEAVE, "leave"));
       Message response;
       if (!conn.receive(response)) {
         std::cerr << "ERROR: failed to receive response\n";
+        conn.close();
         return 1;
       }
       if (response.tag == TAG_ERR) {
@@ -75,10 +79,11 @@ int main(int argc, char **argv) {
     } else if (line.substr(0,5) == "/quit"){
       std::stringstream quit;
       quit << "quit:";
-      conn.send(Message(TAG_QUIT, quit.str()));
+      conn.send(Message(TAG_QUIT, "quit"));
       Message response;
       if (!conn.receive(response)) {
         std::cerr << "ERROR: failed to receive response\n";
+        conn.close();
         return 1;
       }
 
@@ -89,15 +94,17 @@ int main(int argc, char **argv) {
 
     } else if(line.substr(0,1) == "/"){
       std::cerr << "ERRROR: improper command entered";
+      conn.close();
       return 0;
     } else{
       std::stringstream message;
       message << "sendall:" << line;
-      Message m = Message(TAG_SENDALL, message.str());
+      Message m = Message(TAG_SENDALL, line);
       conn.send(m);
       Message response;
       if (!conn.receive(response)) {
         std::cerr << "ERROR: failed to receive response\n";
+        conn.close();
         return 1;
       }
       if (response.tag == TAG_ERR) {
@@ -108,6 +115,6 @@ int main(int argc, char **argv) {
       
   // TODO: loop reading commands from user, sending messages to
   //       server as appropriate
-
+  conn.close();
   return 0;
 }
