@@ -4,6 +4,9 @@
 #include <map>
 #include <string>
 #include <pthread.h>
+#include "connection.h"
+#include "user.h"
+
 class Room;
 
 class Server {
@@ -12,6 +15,17 @@ public:
   ~Server();
 
   bool listen();
+  struct client_data{
+    int sock; 
+    char type;
+    std::string username;
+    Connection* conn;
+    pthread_t thread;
+    Room* room;
+    User* user;
+  };
+  void chat_with_sender(client_data *cd);
+  void chat_with_receiver(client_data *cd);
 
   void handle_client_requests();
 

@@ -25,21 +25,97 @@ struct client_data{
   std::string username;
   Connection* conn;
   pthread_t thread;
-
+  Room* room;
+  User* user;
 };
+struct worker_arg {
+    Server* server;
+    Server::client_data* cd;
+};
+
 
 ////////////////////////////////////////////////////////////////////////
 // Client thread functions
 ////////////////////////////////////////////////////////////////////////
 
+void Server::chat_with_sender(client_data *cd){
+  while (true){
+    Message m;
+    if (!cd->conn->receive(m)) {
+        std::cerr << "Failed to read message\n";
+        close(cd->sock);
+        delete cd->conn;
+        delete cd;
+        return;
+    }
+    // ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
+    // if (n != sizeof(Message)) {
+    //     std::cerr << "Incomplete message\n";  
+    // }
+    if (m.tag == TAG_JOIN){ 
+      // register to room
+      cd->room = find_or_create_room(m.data);
+      cd->conn->send(Message(TAG_JOIN, "ok"));
+    }
+    if (m.tag == TAG_SENDALL){
+      cd->room->broadcast_message(cd->username, m.data);
+      // broadcast
+      cd->conn->send(Message(TAG_SENDALL, "ok"));
+    }
+    if (m.tag == TAG_LEAVE){
+      // deregister room
+      cd->conn->send(Message(TAG_LEAVE, "ok"));
+    }
+    if (m.tag == TAG_QUIT){
+      // destroy
+      cd->conn->send(Message(TAG_QUIT, "ok"));
+    }
+    if (m.tag == TAG_ERR){
+      // destroy
+      cd->conn->send(Message(TAG_ERR, "err"));
+    }
+  }
+}
+
+void Server::chat_with_receiver(client_data *cd){
+  while (true){
+    Room* r = cd->room;
+    Message m;
+    if (!cd->conn->receive(m)) {
+        std::cerr << "Failed to read message\n";
+        close(cd->sock);
+        delete cd->conn;
+        delete cd;
+        return;
+    }
+    // ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
+    // if (n != sizeof(Message)) {
+    //     std::cerr << "Incomplete message\n";  
+    // }
+    if (m.tag == TAG_JOIN){ 
+      // register to room
+      cd->room = find_or_create_room(m.data);
+      cd->room->add_member(cd->user);
+      cd->conn->send(Message(TAG_JOIN, "ok"));
+    }
+    cd->user->mqueue.dequeue();
+  }
+}
+
 namespace {
 
 void *worker(void *arg) {
   pthread_detach(pthread_self());
-  client_data* cd = static_cast<client_data*>(arg);
+  worker_arg* wa = static_cast<worker_arg*>(arg);
+  Server* server = wa->server;
+  Server::client_data* cd = wa->cd;
+  delete wa;
+
   Message m;
     if (!cd->conn->receive(m)) {
         std::cerr << "Failed to read login message\n";
+        close(cd->sock);
+        delete cd->conn;
         delete cd;
         return nullptr;
     }
@@ -47,18 +123,24 @@ void *worker(void *arg) {
     if (m.tag == TAG_SLOGIN) {
         cd->type = 'S';
         cd->username = m.data;  
+        cd->user = new User(m.data);
         Message reply(TAG_OK, "Welcome sender");
         cd->conn->send(reply);
+        server->chat_with_sender(cd);
     }
     else if (m.tag == TAG_RLOGIN) {
         cd->type = 'R';
         cd->username = m.data;
+        cd->user = new User(m.data);
         Message reply(TAG_OK, "Welcome receiver");
         cd->conn->send(reply);
+        server->chat_with_receiver(cd);
     }
     else {
         Message reply(TAG_ERR, "Invalid login");
         cd->conn->send(reply);
+        close(cd->sock);
+        delete cd->conn;
         delete cd;
         return nullptr;
     }
@@ -101,7 +183,10 @@ Server::~Server() {
 bool Server::listen() {
   // TODO: use open_listenfd to create the server socket, return true
   //       if successful, false if not
-  m_ssock = open_listenfd((char*) m_port);
+  std::ostringstream ss;
+  ss << m_port;
+  std::string port_str = ss.str();
+  m_ssock = open_listenfd(port_str.c_str());
   if (m_ssock<0){
     return false;
   }
@@ -114,11 +199,14 @@ void Server::handle_client_requests() {
     if (clientfd < 0) {
       std::cerr << "err: Failed to connect to server\n";
     }
-    client_data *cd = new client_data;
-    cd->sock = clientfd;               // from accept()
-    cd->conn = new Connection(clientfd);    // if your Connection works like this
+    Server::client_data* cd = new Server::client_data;
+    cd->sock = clientfd;          
+    cd->conn = new Connection(clientfd);   
     pthread_t thr_id;
-    if (pthread_create(&thr_id, NULL, worker, cd) != 0) {
+    worker_arg* arg = new worker_arg;
+    arg->server = this;
+    arg->cd = cd;
+    if (pthread_create(&thr_id, NULL, worker, arg) != 0) {
       std::cerr << "err: Failed to connect to server\n";
     }
   }
@@ -129,11 +217,13 @@ void Server::handle_client_requests() {
 
 Room *Server::find_or_create_room(const std::string &room_name) {
   if (m_rooms.count(room_name)==0){
-    Room new_room = Room(room_name);
-    m_rooms[room_name] = &new_room;
+    Room* new_room = new Room(room_name);
+    m_rooms[room_name] = new_room;
   }
   return m_rooms[room_name];
 
   // TODO: return a pointer to the unique Room object representing
   //       the named chat room, creating a new one if necessary
 }
+
+
