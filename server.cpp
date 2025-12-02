@@ -94,9 +94,12 @@ void Server::chat_with_receiver(client_data *cd){
     // }
     if (m.tag == TAG_JOIN){ 
       // register to room
+      pthread_mutex_lock(&m_lock);
       cd->room = find_or_create_room(m.data);
       cd->room->add_member(cd->user);
       cd->conn->send(Message(TAG_JOIN, "ok"));
+      pthread_mutex_unlock(&m_lock);
+
     }
     cd->user->mqueue.dequeue();
   }

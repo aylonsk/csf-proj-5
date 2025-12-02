@@ -14,11 +14,15 @@ Room::~Room() {
 }
 
 void Room::add_member(User *user) {
+  pthread_mutex_lock(&lock);
   members.insert(user);
+  pthread_mutex_unlock(&lock);
 }
 
 void Room::remove_member(User *user) {
+  pthread_mutex_lock(&lock);
   members.erase(user);
+  pthread_mutex_unlock(&lock);
 }
 
 void Room::broadcast_message(const std::string &sender_username, const std::string &message_text) {
