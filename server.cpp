@@ -44,8 +44,6 @@ void Server::chat_with_sender(client_data *cd){
     if (!cd->conn->receive(m)) {
         std::cerr << "Failed to read message\n";
         close(cd->sock);
-        delete cd->conn;
-        delete cd;
         return;
     }
     // ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
@@ -54,11 +52,21 @@ void Server::chat_with_sender(client_data *cd){
     // }
     if (m.tag == TAG_JOIN){ 
       // register to room
+      std::cout << "joined sender" << m.data << std::endl;;
+
+      pthread_mutex_lock(&m_lock);
       cd->room = find_or_create_room(m.data);
+      cd->room->add_member(cd->user);
       cd->conn->send(Message(TAG_JOIN, "ok"));
+      pthread_mutex_unlock(&m_lock);
+      std::cout << "joined sender" << m.data << std::endl;;
     }
     if (m.tag == TAG_SENDALL){
+      std::cout << "broadcasting" << std::endl;;
+      pthread_mutex_lock(&m_lock);
       cd->room->broadcast_message(cd->username, m.data);
+      pthread_mutex_unlock(&m_lock);
+
       // broadcast
       cd->conn->send(Message(TAG_SENDALL, "ok"));
     }
@@ -69,45 +77,55 @@ void Server::chat_with_sender(client_data *cd){
     if (m.tag == TAG_QUIT){
       // destroy
       cd->conn->send(Message(TAG_QUIT, "ok"));
+      return;
     }
     if (m.tag == TAG_ERR){
       // destroy
       cd->conn->send(Message(TAG_ERR, "err"));
+      return;
     }
   }
 }
 
 void Server::chat_with_receiver(client_data *cd){
-  while (true){
-    Room* r = cd->room;
-    Message m;
-    if (!cd->conn->receive(m)) {
+  Message m;
+  bool t = false;
+  if (!cd->conn->receive(m)) {
         std::cerr << "Failed to read message\n";
         close(cd->sock);
-        delete cd->conn;
-        delete cd;
         return;
-    }
-    // ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
-    // if (n != sizeof(Message)) {
-    //     std::cerr << "Incomplete message\n";  
-    // }
-    if (m.tag == TAG_JOIN){ 
+  }
+  if (m.tag == TAG_JOIN){ 
       // register to room
       pthread_mutex_lock(&m_lock);
       cd->room = find_or_create_room(m.data);
       cd->room->add_member(cd->user);
       cd->conn->send(Message(TAG_JOIN, "ok"));
       pthread_mutex_unlock(&m_lock);
-
-    }
-    cd->user->mqueue.dequeue();
+      t = true;
+      std::cout<< "joined receiver" << std::endl;
+  } else if (m.tag == TAG_ERR){
+      // destroy
+      cd->conn->send(Message(TAG_ERR, "err"));
+      return;
+  } else {
+    return;
+  }
+  while (t){
+    Message* new_mess = cd->user->mqueue.dequeue();
+    if (!new_mess) continue; 
+    new_mess->tag = TAG_DELIVERY;
+    std::cout<< new_mess->tag << std::endl;
+    bool ok = cd->conn->send(*new_mess);
+    std::cout << "[receiver] send returned=" << ok << std::endl;
+    delete new_mess;
   }
 }
 
 namespace {
 
 void *worker(void *arg) {
+  std::cout << "hi ho" << std::endl;  
   pthread_detach(pthread_self());
   worker_arg* wa = static_cast<worker_arg*>(arg);
   Server* server = wa->server;
@@ -127,19 +145,29 @@ void *worker(void *arg) {
         cd->type = 'S';
         cd->username = m.data;  
         cd->user = new User(m.data);
-        Message reply(TAG_OK, "Welcome sender");
+        Message reply(TAG_OK, "ok");
         cd->conn->send(reply);
         server->chat_with_sender(cd);
     }
     else if (m.tag == TAG_RLOGIN) {
         cd->type = 'R';
         cd->username = m.data;
+        std::cout << "mdata:" << m.data;
         cd->user = new User(m.data);
-        Message reply(TAG_OK, "Welcome receiver");
+        Message reply(TAG_OK, "ok");
         cd->conn->send(reply);
         server->chat_with_receiver(cd);
-    }
-    else {
+        // if (!cd->conn->receive(m)) {
+        //   std::cerr << "Failed to read login message\n";
+        //   close(cd->sock);
+        //   delete cd->conn;
+        //   delete cd;
+        //   return nullptr;
+        // }
+        // if(m.tag == TAG_JOIN) {
+
+        // }
+      } else {
         Message reply(TAG_ERR, "Invalid login");
         cd->conn->send(reply);
         close(cd->sock);
@@ -173,9 +201,7 @@ void *worker(void *arg) {
 Server::Server(int port)
   : m_port(port)
   , m_ssock(-1) {
-  pthread_mutex_t lock;
-  pthread_mutex_init(&lock, NULL);
-  m_lock = lock;
+  pthread_mutex_init(&m_lock, NULL);
 }
 
 Server::~Server() {
@@ -189,16 +215,24 @@ bool Server::listen() {
   std::ostringstream ss;
   ss << m_port;
   std::string port_str = ss.str();
+  std::cout << "Calling open_listenfd(" << port_str << ")\n";
+
   m_ssock = open_listenfd(port_str.c_str());
-  if (m_ssock<0){
-    return false;
-  }
-  return true;
+
+    if (m_ssock < 0) {
+        std::cerr << "open_listenfd FAILED\n";
+        return false;
+    }
+
+    std::cout << "open_listenfd succeeded, socket=" << m_ssock << "\n";
+    return true;
 }
 
 void Server::handle_client_requests() {
   while(true){
+    std::cout << "About to Accept()\n" << std::flush;
     int clientfd = Accept(m_ssock, NULL, NULL);
+    std::cout << "Accepted fd: " << clientfd << "\n" << std::flush;
     if (clientfd < 0) {
       std::cerr << "err: Failed to connect to server\n";
     }

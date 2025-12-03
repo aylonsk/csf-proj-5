@@ -1,0 +1,6 @@
+alice: This is a message from alice
+bob: And this is a message from bob
+alice: each alternating line of messages...
+bob: will be send by a different client...
+alice: this test ensures that clients are served in order
+bob: and that one client may not monopolize the entire transmission

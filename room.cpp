@@ -3,6 +3,8 @@
 #include "message_queue.h"
 #include "user.h"
 #include "room.h"
+#include <iostream>
+#include <sstream>
 
 Room::Room(const std::string &room_name)
   : room_name(room_name) {
@@ -26,9 +28,16 @@ void Room::remove_member(User *user) {
 }
 
 void Room::broadcast_message(const std::string &sender_username, const std::string &message_text) {
+  std::cout<< "joined receiver" << std::endl;
+  pthread_mutex_lock(&lock);
+
   for (User* user: members){
-    std::string mdat = "delivery" + room_name + ":" + sender_username + ":" + message_text;
+    std::cout<< "usernem" << std::endl;
+    std::string mdat = room_name + ":" + sender_username + ":" + message_text;
     
-    user->mqueue.enqueue(new Message(TAG_SENDALL, mdat));
+    user->mqueue.enqueue(new Message(TAG_DELIVERY, mdat));
   }
+
+  pthread_mutex_unlock(&lock);
+
 }

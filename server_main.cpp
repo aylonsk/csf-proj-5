@@ -7,6 +7,7 @@
 // to this main function.
 
 int main(int argc, char **argv) {
+  std::cout << "hi";
   if (argc != 2) {
     std::cerr << "Usage: server_main <port>\n";
     return 1;
