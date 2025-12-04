@@ -46,10 +46,11 @@ void Server::chat_with_sender(client_data *cd){
         close(cd->sock);
         return;
     }
-    // ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
-    // if (n != sizeof(Message)) {
-    //     std::cerr << "Incomplete message\n";  
-    // }
+    ssize_t n = rio_readn(cd->sock, &m, sizeof(Message));
+    if (n != sizeof(Message)) {
+        cd->conn->send(Message(TAG_ERR, "Incomplete message"));
+        return;
+    }
     if (m.tag == TAG_JOIN){ 
       // register to room
       std::cout << "joined sender" << m.data << std::endl;;
@@ -57,33 +58,47 @@ void Server::chat_with_sender(client_data *cd){
       pthread_mutex_lock(&m_lock);
       cd->room = find_or_create_room(m.data);
       cd->room->add_member(cd->user);
-      cd->conn->send(Message(TAG_JOIN, "ok"));
+      cd->conn->send(Message(TAG_OK, m.data));
       pthread_mutex_unlock(&m_lock);
       std::cout << "joined sender" << m.data << std::endl;;
     }
     if (m.tag == TAG_SENDALL){
       std::cout << "broadcasting" << std::endl;;
+      if (!cd->room){
+        cd->conn->send(Message(TAG_ERR, "Cannot send message while not in room"));
+        return;
+      }
       pthread_mutex_lock(&m_lock);
       cd->room->broadcast_message(cd->username, m.data);
       pthread_mutex_unlock(&m_lock);
 
       // broadcast
-      cd->conn->send(Message(TAG_SENDALL, "ok"));
+      cd->conn->send(Message(TAG_OK, m.data));
     }
     if (m.tag == TAG_LEAVE){
       // deregister room
-      cd->conn->send(Message(TAG_LEAVE, "ok"));
+      if (!cd->room){
+        cd->conn->send(Message(TAG_ERR, "Cannot leave while not in room"));
+        return;
+      }
+      cd->room->remove_member(cd->user);
+      cd->room = nullptr;
+      cd->conn->send(Message(TAG_OK, m.data));
     }
     if (m.tag == TAG_QUIT){
-      // destroy
-      cd->conn->send(Message(TAG_QUIT, "ok"));
+      cd->conn->send(Message(TAG_OK, "ok"));
+      close(cd->sock);
+
       return;
     }
     if (m.tag == TAG_ERR){
       // destroy
-      cd->conn->send(Message(TAG_ERR, "err"));
+      cd->conn->send(Message(TAG_ERR, m.data));
       return;
     }
+    cd->conn->send(Message(TAG_ERR, "invalid tag"));
+    return;
+
   }
 }
 
@@ -100,16 +115,17 @@ void Server::chat_with_receiver(client_data *cd){
       pthread_mutex_lock(&m_lock);
       cd->room = find_or_create_room(m.data);
       cd->room->add_member(cd->user);
-      cd->conn->send(Message(TAG_JOIN, "ok"));
+      cd->conn->send(Message(TAG_OK, m.data));
       pthread_mutex_unlock(&m_lock);
       t = true;
       std::cout<< "joined receiver" << std::endl;
   } else if (m.tag == TAG_ERR){
       // destroy
-      cd->conn->send(Message(TAG_ERR, "err"));
+      cd->conn->send(Message(TAG_ERR, m.data));
       return;
   } else {
-    return;
+      cd->conn->send(Message(TAG_ERR, "Invalid tag"));
+      return;
   }
   while (t){
     Message* new_mess = cd->user->mqueue.dequeue();
